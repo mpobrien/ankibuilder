@@ -59,21 +59,35 @@ def prettyprint_result(result):
                 )
                 print(
                     "\t\t",
-                    colored(entry['context'], "green", attrs=[]),
+                    colored(entry['context'], "magenta", attrs=[]),
                 )
+            print(colored(entry['from_example'], "green", attrs=[]))
+            if len(entry.get('to_example', [])) > 0:
+                print(colored(entry['to_example'][0], "green", attrs=[]))
             print()
 
-def main(args):
-    if len(args) < 2:
-        print("Usage: ", args[0], "<word>")
-        return
-    inputword = args[1]
-    # Echo the line back
+def handle_word(word):
     try:
-        translation = wr.translate(inputword)
+        translation = wr.translate(word)
         prettyprint_result(translation)
     except NameError:
-        print("No translation found for", inputword)
+        print("No translation found for", word)
+
+def main(args):
+    if len(args) >= 2:
+        handle_word(args[1])
+        return
+
+    index = 0
+    while True:
+        try:
+            if index > 0:
+                print("\n\n\n")
+            word = input("Enter a word: ")
+            handle_word(word)
+            index += 1
+        except KeyboardInterrupt:
+            return
 
 
 
