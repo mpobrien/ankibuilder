@@ -365,7 +365,7 @@ func main() {
 	var lastTranslation *Translation
 	_ = lastTranslation
 	for {
-		fmt.Print(promptStyle.Render("Enter a word to look up, or /command: "))
+		fmt.Print(promptStyle.Render("Enter a word to look up, or /command (/help to list): "))
 		reader := bufio.NewReader(os.Stdin)
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
@@ -571,15 +571,13 @@ func runAddCommand(lastTranslation *Translation, params []string) error {
 
 	saved, err := filePrompt(out.String())
 	if err != nil {
-		fmt.Println("Error: ", err)
-	} else {
-		fmt.Println(saved)
+		return fmt.Errorf("failed to open editor: %w", err)
 	}
 
 	var tmpl EditTemplate
 	dec := yaml.NewDecoder(strings.NewReader(saved))
 	if err := dec.Decode(&tmpl); err != nil {
-		return err
+		return fmt.Errorf("invalid yaml: %w", err)
 	}
 
 	key, _ := os.LookupEnv("MOCHI_KEY")
@@ -627,13 +625,16 @@ func runAddCommand(lastTranslation *Translation, params []string) error {
 		},
 		Reviews: []any{},
 	}
-	savedCard, err := mc.CreateCard(card)
+	_, err = mc.CreateCard(card)
 	if err != nil {
-		fmt.Println("err is", err)
-		return err
+		return fmt.Errorf("failed to create card: %w", err)
 	}
-	fmt.Println("card is ", savedCard)
 
+	fmt.Println(
+		lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00ff00")).
+			Render("Successfully created card.\n"),
+	)
 	return nil
 
 }
