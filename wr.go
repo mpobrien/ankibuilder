@@ -2,16 +2,21 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"github.com/goccy/go-yaml"
 )
 
 const (
@@ -203,7 +208,10 @@ type FromWord struct {
 }
 
 func (fw FromWord) String() string {
-	return fmt.Sprintf("%s (%s)", fw.Source, fw.Grammar)
+	if len(fw.Grammar) > 0 {
+		return fmt.Sprintf("%s (%s)", fw.Source, fw.Grammar)
+	}
+	return fw.Source
 }
 
 func (fw FromWord) ColorString() string {
@@ -232,6 +240,20 @@ type ToWord struct {
 	Meaning string
 	Notes   string
 	Grammar string
+}
+
+func (tw ToWord) String() string {
+	if len(tw.Notes) > 0 {
+		return fmt.Sprintf("%s (%s) (%s)",
+			tw.Meaning,
+			tw.Grammar,
+			tw.Notes,
+		)
+	}
+	return fmt.Sprintf("%s (%s)",
+		tw.Meaning,
+		tw.Grammar,
+	)
 }
 
 func (tw ToWord) ColorString() string {
@@ -331,21 +353,39 @@ func main() {
 		return
 	}
 
+	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).PaddingLeft(1).PaddingRight(1).Bold(true)
 	headerStyle := lipgloss.NewStyle().
 		PaddingLeft(2).
 		PaddingRight(2).Foreground(lipgloss.Color("#ffffff")).Bold(true)
 	cellStyle := lipgloss.NewStyle().
 		PaddingLeft(2).
-		PaddingRight(2).Foreground(lipgloss.Color("#ffffff")).PaddingBottom(2)
+		PaddingRight(2).Foreground(lipgloss.Color("#ffffff")).PaddingBottom(2).MaxWidth(40)
 
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fad07a"))
+	var lastTranslation *Translation
+	_ = lastTranslation
 	for {
-		fmt.Print(promptStyle.Render("Enter word to look up: "))
+		fmt.Print(promptStyle.Render("Enter a word to look up, or /command: "))
 		reader := bufio.NewReader(os.Stdin)
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 		if len(input) == 0 {
 			continue
+		}
+
+		if strings.HasPrefix(input, "/") {
+			cmdParts := strings.Fields(input)
+			switch cmdParts[0] {
+			case "/add":
+				if err := runAddCommand(lastTranslation, cmdParts[1:]); err != nil {
+					fmt.Println("error: ", err)
+					continue
+				}
+				continue
+			default:
+				fmt.Printf("unknown command %s\n", input)
+				continue
+			}
 		}
 
 		translation, err := wr.Translate(input)
@@ -354,32 +394,37 @@ func main() {
 			continue
 		}
 
+		lastTranslation = translation
 		inputWordStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#fad07a")).Bold(true).Padding(1).Underline(true)
 		fmt.Println(inputWordStyle.Render(input))
 
 		t := table.New().
 			Border(lipgloss.NormalBorder()).
+			BorderRow(true).
 			BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#8197bf"))).
 			StyleFunc(func(row, col int) lipgloss.Style {
+				if col <= 0 {
+					return idStyle
+				}
 				if row < 0 {
 					return headerStyle
 				}
 				return cellStyle
 			}).
-			Headers("Word", "Definition")
+			Headers("#", "Word", "Definition")
+		counter := 1
 		for _, section := range translation.Translations {
 			for _, entry := range section.Entries {
-				row := EntryToRow(entry)
-				t.Row(row...)
+				t.Row(EntryToRow(counter, entry)...)
+				counter++
 			}
 		}
 
 		fmt.Println(t)
 	}
-
 }
 
-func EntryToRow(entry ParsedEntry) []string {
+func EntryToRow(id int, entry ParsedEntry) []string {
 	defCol := strings.Join(Map(entry.ToWords, func(tw ToWord) string {
 		return tw.ColorString()
 	}), "\n")
@@ -401,6 +446,7 @@ func EntryToRow(entry ParsedEntry) []string {
 	}
 
 	return []string{
+		fmt.Sprintf("%d", id),
 		entry.FromWord.ColorString(),
 		defCol,
 	}
@@ -413,4 +459,181 @@ func Map[T any, U any](input []T, fn func(T) U) []U {
 		result[i] = fn(v)
 	}
 	return result
+}
+
+func filePrompt(initialContents string) (string, error) {
+	tempOut, err := os.CreateTemp("", "wr_*.yml")
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.WriteString(tempOut, initialContents); err != nil {
+		return "", err
+	}
+	tempOut.Close()
+
+	if err := openEditor(tempOut.Name()); err != nil {
+		return "", err
+	}
+
+	tempFile, err := os.Open(tempOut.Name())
+	if err != nil {
+		return "", err
+	}
+	defer tempOut.Close()
+	contents, err := io.ReadAll(tempFile)
+	return string(contents), err
+}
+
+type EditTemplate struct {
+	TargetLang    string `yaml:"TargetLang"`
+	SourceLang    string `yaml:"SourceLang"`
+	TargetExample string `yaml:"TargetExample,omitempty"`
+	SourceExample string `yaml:"SourceExample,omitempty"`
+}
+
+func openEditor(filePath string) error {
+	// Determine the editor to use
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+	if editor == "" {
+		editor = "vi" // Default to 'vi' if no editor is set
+	}
+
+	cmd := exec.Command(editor, filePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to open editor: %w", err)
+	}
+
+	return nil
+}
+
+const (
+	defaultDeckID        = "qyYRvdSD"
+	defaultTemplateID    = "sxPZBYo9"
+	sourceLangFieldID    = "name"
+	targetLangFieldID    = "mkC1QWQA"
+	sourceExampleFieldId = "z8lDM6FF"
+	targetExampleFieldId = "Ge7JC3bp"
+)
+
+func runAddCommand(lastTranslation *Translation, params []string) error {
+	allEntries := []ParsedEntry{}
+	counter := 0
+	for _, section := range lastTranslation.Translations {
+		for _, entry := range section.Entries {
+			allEntries = append(allEntries, entry)
+			counter++
+		}
+	}
+
+	paramNums := []int{}
+	for _, param := range params {
+		paramNum, err := strconv.Atoi(param)
+		if err != nil {
+			return fmt.Errorf("%q is not a number", param)
+		}
+		paramNums = append(paramNums, paramNum)
+	}
+
+	out := &bytes.Buffer{}
+	enc := yaml.NewEncoder(out, yaml.UseLiteralStyleIfMultiline(true))
+	for _, paramNum := range paramNums {
+		idx := paramNum - 1
+		if idx < 0 || idx > len(allEntries)-1 {
+			return fmt.Errorf("invalid index: %d", paramNum)
+		}
+
+		entry := allEntries[idx]
+		templ := EditTemplate{
+			TargetLang: entry.FromWord.String(),
+			SourceLang: strings.Join(Map(entry.ToWords, func(tw ToWord) string {
+				return tw.String()
+			}), "\n"),
+		}
+		if len(entry.FromExample) > 0 {
+			templ.SourceExample = entry.FromExample
+		}
+		if len(entry.ToExample) > 0 {
+			templ.TargetExample = entry.ToExample[0]
+		}
+
+		if err := enc.Encode(templ); err != nil {
+			return err
+		}
+	}
+
+	saved, err := filePrompt(out.String())
+	if err != nil {
+		fmt.Println("Error: ", err)
+	} else {
+		fmt.Println(saved)
+	}
+
+	var tmpl EditTemplate
+	dec := yaml.NewDecoder(strings.NewReader(saved))
+	if err := dec.Decode(&tmpl); err != nil {
+		return err
+	}
+
+	key, _ := os.LookupEnv("MOCHI_KEY")
+	mc := NewMochiClient(key)
+	// tmpls, err := mc.ListTemplates()
+	// if err != nil {
+	// 	return err
+	}
+	// for _, tmpl := range tmpls {
+	// 	fmt.Println(tmpl.Name, tmpl.ID)
+	// 	for _, field := range tmpl.Fields {
+	// 		fmt.Println("\t", field.Name, field.ID)
+	// 	}
+	// }
+	// decks, err := mc.ListDecks()
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// for _, deck := range decks {
+	// 	fmt.Println(deck.Name, deck.ID, deck.TemplateID)
+	// }
+
+	card := Card{
+		DeckID:     defaultDeckID,     // TODO derive
+		TemplateID: defaultTemplateID, //TODO derive
+		Content:    "ok",
+		Fields: map[string]Field{
+			sourceLangFieldID: {
+				ID:    sourceLangFieldID,
+				Value: tmpl.SourceLang,
+			},
+			targetLangFieldID: {
+				ID:    targetLangFieldID,
+				Value: tmpl.TargetLang,
+			},
+			sourceExampleFieldId: {
+				ID:    sourceExampleFieldId,
+				Value: tmpl.SourceExample,
+			},
+			targetExampleFieldId: {
+				ID:    targetExampleFieldId,
+				Value: tmpl.TargetExample,
+			},
+		},
+		Reviews: []any{},
+	}
+	savedCard, err := mc.CreateCard(card)
+	if err != nil {
+		fmt.Println("err is", err)
+		return err
+	}
+	fmt.Println("card is ", savedCard)
+
+	return nil
+
 }
