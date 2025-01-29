@@ -587,7 +587,7 @@ func runAddCommand(lastTranslation *Translation, params []string) error {
 	// tmpls, err := mc.ListTemplates()
 	// if err != nil {
 	// 	return err
-	}
+	// }
 	// for _, tmpl := range tmpls {
 	// 	fmt.Println(tmpl.Name, tmpl.ID)
 	// 	for _, field := range tmpl.Fields {
