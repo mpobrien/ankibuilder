@@ -376,6 +376,18 @@ func main() {
 		if strings.HasPrefix(input, "/") {
 			cmdParts := strings.Fields(input)
 			switch cmdParts[0] {
+			case "/decks":
+				if err := runListDecksCommand(cmdParts[1:]); err != nil {
+					fmt.Println("error: ", err)
+					continue
+				}
+				continue
+			case "/templates":
+				if err := runListTemplatesCommand(cmdParts[1:]); err != nil {
+					fmt.Println("error: ", err)
+					continue
+				}
+				continue
 			case "/add":
 				if err := runAddCommand(lastTranslation, cmdParts[1:]); err != nil {
 					fmt.Println("error: ", err)
@@ -514,14 +526,105 @@ func openEditor(filePath string) error {
 	return nil
 }
 
+const defaultDeckID = "qyYRvdSD"
 const (
-	defaultDeckID        = "qyYRvdSD"
-	defaultTemplateID    = "sxPZBYo9"
-	sourceLangFieldID    = "name"
-	targetLangFieldID    = "mkC1QWQA"
-	sourceExampleFieldId = "z8lDM6FF"
-	targetExampleFieldId = "Ge7JC3bp"
+	defaultForwardTemplateID = "sxPZBYo9"
+	fwdSourceLangFieldID     = "name"
+	fwdTargetLangFieldID     = "mkC1QWQA"
+	fwdSourceExampleFieldId  = "z8lDM6FF"
+	fwdTargetExampleFieldId  = "Ge7JC3bp"
 )
+
+const (
+	defaultReverseTemplateID = "kuIZ8krm"
+	revSourceLangFieldID     = "name"
+	revTargetLangFieldID     = "Bhn3gM4o"
+	revSourceExampleFieldId  = "bhk6AkQ5"
+	revTargetExampleFieldId  = "e5u7LFKy"
+)
+
+func generateCards(deckID string, tmpl *EditTemplate) []Card {
+	return []Card{
+		{
+			DeckID:     deckID,                   // TODO derive
+			TemplateID: defaultForwardTemplateID, //TODO derive
+			Content:    "ok",
+			Fields: map[string]Field{
+				fwdSourceLangFieldID: {
+					ID:    fwdSourceLangFieldID,
+					Value: tmpl.SourceLang,
+				},
+				fwdTargetLangFieldID: {
+					ID:    fwdTargetLangFieldID,
+					Value: tmpl.TargetLang,
+				},
+				fwdSourceExampleFieldId: {
+					ID:    fwdSourceExampleFieldId,
+					Value: tmpl.SourceExample,
+				},
+				fwdTargetExampleFieldId: {
+					ID:    fwdTargetExampleFieldId,
+					Value: tmpl.TargetExample,
+				},
+			},
+			Reviews: []any{},
+		},
+		{
+			DeckID:     deckID,                   // TODO derive
+			TemplateID: defaultReverseTemplateID, //TODO derive
+			Content:    "ok",
+			Fields: map[string]Field{
+				revSourceLangFieldID: {
+					ID:    revSourceLangFieldID,
+					Value: tmpl.SourceLang,
+				},
+				revTargetLangFieldID: {
+					ID:    revTargetLangFieldID,
+					Value: tmpl.TargetLang,
+				},
+				revSourceExampleFieldId: {
+					ID:    revSourceExampleFieldId,
+					Value: tmpl.SourceExample,
+				},
+				revTargetExampleFieldId: {
+					ID:    revTargetExampleFieldId,
+					Value: tmpl.TargetExample,
+				},
+			},
+			Reviews: []any{},
+		},
+	}
+}
+
+func runListTemplatesCommand(_ []string) error {
+	key, _ := os.LookupEnv("MOCHI_KEY")
+	mc := NewMochiClient(key)
+	tmpls, err := mc.ListTemplates()
+	if err != nil {
+		return err
+	}
+	for _, tmpl := range tmpls {
+		fmt.Println(tmpl.Name, tmpl.ID)
+		for _, field := range tmpl.Fields {
+			fmt.Println("\t", field.Name, field.ID)
+		}
+	}
+	return nil
+}
+
+func runListDecksCommand(_ []string) error {
+	key, _ := os.LookupEnv("MOCHI_KEY")
+	mc := NewMochiClient(key)
+	decks, err := mc.ListDecks()
+	if err != nil {
+		return err
+	}
+
+	for _, deck := range decks {
+		fmt.Println(deck.Name, deck.ID, deck.TemplateID)
+	}
+	return nil
+}
 
 func runAddCommand(lastTranslation *Translation, params []string) error {
 	allEntries := []ParsedEntry{}
@@ -580,61 +683,21 @@ func runAddCommand(lastTranslation *Translation, params []string) error {
 		return fmt.Errorf("invalid yaml: %w", err)
 	}
 
+	cards := generateCards(defaultDeckID, &tmpl)
 	key, _ := os.LookupEnv("MOCHI_KEY")
 	mc := NewMochiClient(key)
-	// tmpls, err := mc.ListTemplates()
-	// if err != nil {
-	// 	return err
-	// }
-	// for _, tmpl := range tmpls {
-	// 	fmt.Println(tmpl.Name, tmpl.ID)
-	// 	for _, field := range tmpl.Fields {
-	// 		fmt.Println("\t", field.Name, field.ID)
-	// 	}
-	// }
-	// decks, err := mc.ListDecks()
-	// if err != nil {
-	// 	return err
-	// }
-	//
-	// for _, deck := range decks {
-	// 	fmt.Println(deck.Name, deck.ID, deck.TemplateID)
-	// }
-
-	card := Card{
-		DeckID:     defaultDeckID,     // TODO derive
-		TemplateID: defaultTemplateID, //TODO derive
-		Content:    "ok",
-		Fields: map[string]Field{
-			sourceLangFieldID: {
-				ID:    sourceLangFieldID,
-				Value: tmpl.SourceLang,
-			},
-			targetLangFieldID: {
-				ID:    targetLangFieldID,
-				Value: tmpl.TargetLang,
-			},
-			sourceExampleFieldId: {
-				ID:    sourceExampleFieldId,
-				Value: tmpl.SourceExample,
-			},
-			targetExampleFieldId: {
-				ID:    targetExampleFieldId,
-				Value: tmpl.TargetExample,
-			},
-		},
-		Reviews: []any{},
-	}
-	_, err = mc.CreateCard(card)
-	if err != nil {
-		return fmt.Errorf("failed to create card: %w", err)
+	for i, card := range cards {
+		_, err = mc.CreateCard(card)
+		if err != nil {
+			return fmt.Errorf("failed to create card: %w", err)
+		}
+		fmt.Println(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00ff00")).
+				Render(fmt.Sprintf("Successfully created card %d.\n", i+1)),
+		)
 	}
 
-	fmt.Println(
-		lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00ff00")).
-			Render("Successfully created card.\n"),
-	)
 	return nil
 
 }
