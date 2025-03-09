@@ -376,6 +376,11 @@ func main() {
 		if strings.HasPrefix(input, "/") {
 			cmdParts := strings.Fields(input)
 			switch cmdParts[0] {
+			case "/help":
+				fmt.Println("\t/decks (list decks)")
+				fmt.Println("\t/templates (list templates)")
+				fmt.Println("\t/add [index] add a card using the item at index")
+				continue
 			case "/decks":
 				if err := runListDecksCommand(cmdParts[1:]); err != nil {
 					fmt.Println("error: ", err)
