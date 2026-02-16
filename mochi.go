@@ -166,3 +166,80 @@ func (mc *MochiClient) ListCardsInDeck(deckID string) ([]Card, error) {
 	}
 	return decks.Docs, nil
 }
+
+const defaultDeckID = "qyYRvdSD"
+const (
+	defaultForwardTemplateID = "sxPZBYo9"
+	fwdSourceLangFieldID     = "name"
+	fwdTargetLangFieldID     = "mkC1QWQA"
+	fwdSourceExampleFieldId  = "z8lDM6FF"
+	fwdTargetExampleFieldId  = "Ge7JC3bp"
+)
+
+const (
+	defaultReverseTemplateID = "kuIZ8krm"
+	revSourceLangFieldID     = "name"
+	revTargetLangFieldID     = "Bhn3gM4o"
+	revSourceExampleFieldId  = "bhk6AkQ5"
+	revTargetExampleFieldId  = "e5u7LFKy"
+)
+
+type EditTemplate struct {
+	TargetLang    string `yaml:"TargetLang"`
+	SourceLang    string `yaml:"SourceLang"`
+	TargetExample string `yaml:"TargetExample,omitempty"`
+	SourceExample string `yaml:"SourceExample,omitempty"`
+}
+
+func generateCards(deckID string, tmpl *EditTemplate) []Card {
+	return []Card{
+		{
+			DeckID:     deckID,                   // TODO derive
+			TemplateID: defaultForwardTemplateID, //TODO derive
+			Content:    "ok",
+			Fields: map[string]Field{
+				fwdSourceLangFieldID: {
+					ID:    fwdSourceLangFieldID,
+					Value: tmpl.SourceLang,
+				},
+				fwdTargetLangFieldID: {
+					ID:    fwdTargetLangFieldID,
+					Value: tmpl.TargetLang,
+				},
+				fwdSourceExampleFieldId: {
+					ID:    fwdSourceExampleFieldId,
+					Value: tmpl.SourceExample,
+				},
+				fwdTargetExampleFieldId: {
+					ID:    fwdTargetExampleFieldId,
+					Value: tmpl.TargetExample,
+				},
+			},
+			Reviews: []any{},
+		},
+		{
+			DeckID:     deckID,                   // TODO derive
+			TemplateID: defaultReverseTemplateID, //TODO derive
+			Content:    "ok",
+			Fields: map[string]Field{
+				revSourceLangFieldID: {
+					ID:    revSourceLangFieldID,
+					Value: tmpl.SourceLang,
+				},
+				revTargetLangFieldID: {
+					ID:    revTargetLangFieldID,
+					Value: tmpl.TargetLang,
+				},
+				revSourceExampleFieldId: {
+					ID:    revSourceExampleFieldId,
+					Value: tmpl.SourceExample,
+				},
+				revTargetExampleFieldId: {
+					ID:    revTargetExampleFieldId,
+					Value: tmpl.TargetExample,
+				},
+			},
+			Reviews: []any{},
+		},
+	}
+}
